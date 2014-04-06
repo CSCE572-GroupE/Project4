@@ -32,7 +32,7 @@ int main(int argc, char **argv){
 	ros::NodeHandle nh;
 
 //	ros::Subscriber laserSubcriber = nh.subscribe("/scan", 1000, &laserScanReceived);
-    ros::Publisher twistPublisher = nh.advertise<geometry_msgs::Twist>("/cmd_vel_mux/input/teleop",1000);
+    ros::Publisher twistPublisher = nh.advertise<geometry_msgs::Twist>("/cmd_vel_mux/input/navi",1000);
 
     ros::Rate rate(RATE);
 
