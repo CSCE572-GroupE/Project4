@@ -155,5 +155,10 @@ catkin_package(
 ## Add folders to be run by python nosetests
 # catkin_add_nosetests(test)
 
-add_executable ( vitals vitals.cpp )
-TARGET_LINK_LIBRARIES (vitals ${catkin_LIBRARIES})
+add_executable ( scan_reader scan_reader.cpp)
+add_executable ( monitor monitor_node.cpp)
+#add_executable ( vitals vitals.cpp )
+
+TARGET_LINK_LIBRARIES (scan_reader ${catkin_LIBRARIES})
+TARGET_LINK_LIBRARIES (monitor ${catkin_LIBRARIES})
+#TARGET_LINK_LIBRARIES (vitals ${catkin_LIBRARIES})
