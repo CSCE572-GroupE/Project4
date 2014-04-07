@@ -1,9 +1,48 @@
 #include <ros/ros.h>
 #include <sensor_msgs/LaserScan.h>
 #include <geometry_msgs/Twist.h>
+#include <sensor_msgs/PointCloud.h>
 
+using namespace std;
+
+struct point {
+    float range;
+    float angle;
+
+    point(){};
+
+    point(int range_val, int angle_val)
+    {
+        range = range_val;
+        angle = angle_val;
+    }
+
+    /**
+     * Purpose: Turns an angle and a range into coordinate (x,y) values
+     */
+    float getX(){
+        return range * cos(angle);
+    }
+
+    float getY(){
+        return range * sin(angle);
+    }
+
+};
+
+
+/***** Constants ******/
+const float POINT_MAX_DISTANCE = .3f; //Defines max distance between one point in and person and the adjacent point
+const float POINT_RANGE_MAX = .3f; //Defines max difference in range that two points can have and still be considered for the same object
+
+const int MIN_OBJECT_POINTS = 5; //Min number of points that must be connected in order to be considered a person
 
 const int RATE = 1;
+
+std::vector < std::vector<point> > objects;
+
+
+
 
 /**
  * Purpose: Checks to see if range is infinity or NaN
@@ -12,35 +51,122 @@ bool isValidRange(float range){
     return !(isinf(range) || isnan(range));
 }
 
+/**
+ * Purpose: Checks if two range values are close together
+ */
+bool similarRanges(float rangeA, float rangeB){
+    if (!isValidRange(rangeA) || !isValidRange(rangeB)) return false;
+    return (fabs(rangeA - rangeB) < POINT_RANGE_MAX);
+}
+
+/**
+ * Purpose: Calulates distance between two points by using SAS Formula
+ */
+float distanceBetweenPoints(point pointA, point pointB){
+    //Side-Angle-Side Formula: A^2 = B^2 + C^2 - 2*B*C*cos(angleA)
+    return pow(pointA.range,2) + pow(pointB.range,2) - 2 * pointA.range * pointB.range * cos(fabs(pointA.angle - pointB.angle));
+}
+
+/**
+ * Purpose: Determines if two points are close together
+ */
+bool similarPoints(point pointA, point pointB){
+    return distanceBetweenPoints(pointA, pointB) < POINT_MAX_DISTANCE;
+}
+
+point calculateCenter(vector<point> object){
+    float total_range = 0;
+    float total_angle = 0;
+    float object_size = object.size();
+    for (int i = 0; i < int(object_size); i++){
+        point p = object.at(i);
+        total_range += p.range;
+        total_angle += p.angle;
+    }
+    return point(total_range/object_size, total_angle/object_size);
+}
 
 void laserScanReceived(const sensor_msgs::LaserScan &scanMessage){
+    objects.clear();
     std::vector<float> ranges = scanMessage.ranges;
-
+    vector<point> object;
+    point current_point;
+    point last_point;
     for (int i = 0; i < int(ranges.size()); i++){
         float angle = scanMessage.angle_min + scanMessage.angle_increment * i;
         float range = ranges.at(i);
-
-        if (isValidRange(range)){
-            ROS_INFO_STREAM("ANGLE: " << angle << " Range: " << range);
-            return;
-        }
+        current_point = point(range,angle);
+        object.push_back(current_point);
     }
+    objects.push_back(object);
+//        if (i == 0){
+//            last_point = current_point;
+//            continue;
+//        }
+//        if (isValidRange(range)){
+//            if (similarPoints(last_point, current_point)){
+//                object.push_back(current_point);
+//            } else {
+//                if (int(object.size()) > MIN_OBJECT_POINTS){
+//                    objects.push_back(object);
+//                }
+//                object.clear();
+//                object.push_back(current_point);
+//            }
+//        }
+//    }
 }
 
 int main(int argc, char **argv){
     ros::init(argc, argv, "scan_reader");
 	ros::NodeHandle nh;
 
-//	ros::Subscriber laserSubcriber = nh.subscribe("/scan", 1000, &laserScanReceived);
+    ros::Subscriber laserSubcriber = nh.subscribe("/scan", 1000, &laserScanReceived);
     ros::Publisher twistPublisher = nh.advertise<geometry_msgs::Twist>("/cmd_vel_mux/input/navi",1000);
+
+    ros::Publisher objectPublisher = nh.advertise<sensor_msgs::PointCloud>(
+        "object_locations", 1000);
 
     ros::Rate rate(RATE);
 
+    vector<point> centers;
+
     while(ros::ok()){
-        geometry_msgs::Twist twistObject;
-        twistObject.linear.x = 1;
-        twistPublisher.publish(twistObject);
+
+        centers.clear();
+        // Create pointcloud to track people's movements
+        sensor_msgs::PointCloud cloud;
+        cloud.header.stamp = ros::Time::now();
+        cloud.header.frame_id = "camera_depth_frame";
+
+//        geometry_msgs::Twist twistObject;
+//        twistObject.linear.x = 1;
+//        twistPublisher.publish(twistObject);
+
+        for (int i = 0; i < int(objects.size()); i++){
+            vector<point> object = objects.at(i);
+            centers.push_back(calculateCenter(object));
+        }
+
+        cloud.points.resize(centers.size());
+
+        ROS_INFO_STREAM("Centers: " << centers.size());
+
+
+        // Map average points on PointCloud .
+        for (int i = 0; i < int(centers.size()); i++){
+            point p = centers.at(i);
+            cloud.points[i].x = 0;//p.getX();
+            cloud.points[i].y = 0;//p.getY();
+            cloud.points[i].z = 0;
+            ROS_INFO_STREAM("Center " << i << ": (" << p.getX() << ", " << p.getY() << ")\n");
+
+        }
+        //Publish the person_locations PointCloud
+        objectPublisher.publish(cloud);
+
         ros::spinOnce();
         rate.sleep();
     }
 }
+
