@@ -1,0 +1,19 @@
+<launch>
+  <node
+    pkg="project4"
+    type="scan_reader"
+    name="scan_reader"
+    output="screen"
+  />
+  
+  <arg name="bag" default="hallway_center.bag"/>
+
+  <node 
+    pkg="rosbag"
+    name="play"
+    type="play"
+    args="$(find project4)/$(arg bag)"
+    required="true"
+  />
+
+</launch>

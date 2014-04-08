@@ -11,7 +11,7 @@ struct point {
 
     point(){};
 
-    point(int range_val, int angle_val)
+    point(float range_val, float angle_val)
     {
         range = range_val;
         angle = angle_val;
@@ -32,12 +32,12 @@ struct point {
 
 
 /***** Constants ******/
-const float POINT_MAX_DISTANCE = .3f; //Defines max distance between one point in and person and the adjacent point
-const float POINT_RANGE_MAX = .3f; //Defines max difference in range that two points can have and still be considered for the same object
+const float POINT_MAX_DISTANCE = .5f; //Defines max distance between one point in and person and the adjacent point
+const float POINT_RANGE_MAX = .5f; //Defines max difference in range that two points can have and still be considered for the same object
 
-const int MIN_OBJECT_POINTS = 5; //Min number of points that must be connected in order to be considered a person
+const int MIN_OBJECT_POINTS = 8; //Min number of points that must be connected in order to be considered a person
 
-const int RATE = 1;
+const int RATE = 50;
 
 std::vector < std::vector<point> > objects;
 
@@ -83,6 +83,7 @@ point calculateCenter(vector<point> object){
         total_range += p.range;
         total_angle += p.angle;
     }
+    ROS_INFO_STREAM("Calc Center: Range-" << total_range << " Angle-" << total_angle << " Size-" << object_size);
     return point(total_range/object_size, total_angle/object_size);
 }
 
@@ -95,26 +96,26 @@ void laserScanReceived(const sensor_msgs::LaserScan &scanMessage){
     for (int i = 0; i < int(ranges.size()); i++){
         float angle = scanMessage.angle_min + scanMessage.angle_increment * i;
         float range = ranges.at(i);
-        current_point = point(range,angle);
-        object.push_back(current_point);
+		current_point = point(range,angle);
+
+        if (i == 0){
+            last_point = current_point;
+            continue;
+        }
+        if (isValidRange(range)){
+            if (similarPoints(last_point, current_point)){
+                object.push_back(current_point);
+            } else {
+                if (int(object.size()) > MIN_OBJECT_POINTS){
+                    objects.push_back(object);
+                }
+                object.clear();
+                object.push_back(current_point);
+            }
+        }
+        last_point = current_point;
     }
     objects.push_back(object);
-//        if (i == 0){
-//            last_point = current_point;
-//            continue;
-//        }
-//        if (isValidRange(range)){
-//            if (similarPoints(last_point, current_point)){
-//                object.push_back(current_point);
-//            } else {
-//                if (int(object.size()) > MIN_OBJECT_POINTS){
-//                    objects.push_back(object);
-//                }
-//                object.clear();
-//                object.push_back(current_point);
-//            }
-//        }
-//    }
 }
 
 int main(int argc, char **argv){
@@ -156,8 +157,8 @@ int main(int argc, char **argv){
         // Map average points on PointCloud .
         for (int i = 0; i < int(centers.size()); i++){
             point p = centers.at(i);
-            cloud.points[i].x = 0;//p.getX();
-            cloud.points[i].y = 0;//p.getY();
+            cloud.points[i].x = p.getX();
+            cloud.points[i].y = p.getY();
             cloud.points[i].z = 0;
             ROS_INFO_STREAM("Center " << i << ": (" << p.getX() << ", " << p.getY() << ")\n");
 
