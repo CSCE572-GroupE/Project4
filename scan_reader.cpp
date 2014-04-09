@@ -9,13 +9,17 @@ struct point {
     float range;
     float angle;
 
-    point(){};
+    point(){
+        range = 0.0f;
+        angle = 0.0f;
+    }
 
     point(float range_val, float angle_val)
     {
         range = range_val;
         angle = angle_val;
     }
+
 
     /**
      * Purpose: Turns an angle and a range into coordinate (x,y) values
@@ -36,7 +40,7 @@ const float POINT_MAX_DISTANCE = .5f; //Defines max distance between one point i
 const float POINT_RANGE_MAX = .5f; //Defines max difference in range that two points can have and still be considered for the same object
 
 const int MIN_OBJECT_POINTS = 8; //Min number of points that must be connected in order to be considered a person
-const int MIN_INF_OBJECT_POINTS = 30;
+const int MIN_INF_OBJECT_POINTS = 50;
 const float ANGLE_PADDING = M_PI/75.;
 
 const int RATE = 50;
@@ -172,25 +176,43 @@ int main(int argc, char **argv){
             //centers.push_back(calculateCenter(object));
         }
 
+        point farthest_object_center;
+        int object_max_distance = 0;
+        for (int i = 0; i < int(objects.size()); i++){
+            vector<point> object = objects.at(i);
+            point object_center = calculateCenter(object);
+            if (distanceBetweenPoints(object_center, point()) > object_max_distance){
+                object_max_distance = distanceBetweenPoints(object_center, point());
+                farthest_object_center = object_center;
+            }
+            centers.push_back(object_center);
+        }
+
+
+
         // TODO: Need to check if max_inf_object exists
         point target_point = calculateCenter(max_inf_object);
 
 
-        cloud.points.resize(1);
+        cloud.points.resize(centers.size());
 
-     //   ROS_INFO_STREAM("Centers: " << centers.size());
+        ROS_INFO_STREAM("Centers: " << centers.size());
 
 
         // Map average points on PointCloud .
-        //for (int i = 0; i < int(centers.size()); i++){
-    //        point p = centers.at(i);
-            cloud.points[0].x = target_point.getX();
-            cloud.points[0].y = target_point.getY();
-            cloud.points[0].z = 0;
+        for (int i = 0; i < int(centers.size()); i++){
+            point p = centers.at(i);
+            cloud.points[i].x = p.getX();
+            cloud.points[i].y = p.getY();
+            cloud.points[i].z = 0;
           //  ROS_INFO_STREAM("Center " << i << ": (" << p.getX() << ", " << p.getY() << ")\n");
 
-       //}
+       }
         //Publish the person_locations PointCloud
+
+        //cloud.points[0].x = target_point.getX();
+        //cloud.points[0].y = target_point.getY();
+        //cloud.points[0].z = 0;
         objectPublisher.publish(cloud);
 
         geometry_msgs::Twist twistObject;
@@ -198,17 +220,34 @@ int main(int argc, char **argv){
         if (inf_objects.size() > 0){
 
             if(target_point.angle < -ANGLE_PADDING) {
-                twistObject.linear.x = .1;
-                twistObject.angular.z = -.1f;
+                twistObject.linear.x = 0;
+                twistObject.angular.z = -.2f;
             } else if (target_point.angle > ANGLE_PADDING){
-                twistObject.linear.x = .1;
-                twistObject.angular.z = .1f;
+                twistObject.linear.x = 0;
+                twistObject.angular.z = .2f;
             } else {
-                twistObject.linear.x = 1;
+                twistObject.linear.x = 5;
                 twistObject.angular.z = 0;
             }
 
 
+        } else if (objects.size() > 0){
+            if (object_max_distance > .5){
+                ROS_INFO_STREAM("Moving Towards Object");
+                if(farthest_object_center.angle < -ANGLE_PADDING) {
+                    twistObject.linear.x = 0;
+                    twistObject.angular.z = -.2f;
+                } else if (farthest_object_center.angle > ANGLE_PADDING){
+                    twistObject.linear.x = 0;
+                    twistObject.angular.z = .2f;
+                } else {
+                    twistObject.linear.x = 5;
+                    twistObject.angular.z = 0;
+                }
+            } else {
+                twistObject.linear.x = 5;
+                twistObject.angular.z = 0;
+            }
         } else {
             twistObject.linear.x = 0;
             twistObject.angular.z = -M_PI/4;
