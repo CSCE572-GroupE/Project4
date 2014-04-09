@@ -36,10 +36,13 @@ const float POINT_MAX_DISTANCE = .5f; //Defines max distance between one point i
 const float POINT_RANGE_MAX = .5f; //Defines max difference in range that two points can have and still be considered for the same object
 
 const int MIN_OBJECT_POINTS = 8; //Min number of points that must be connected in order to be considered a person
+const int MIN_INF_OBJECT_POINTS = 30;
+const float ANGLE_PADDING = M_PI/75.;
 
 const int RATE = 50;
 
 std::vector < std::vector<point> > objects;
+std::vector < std::vector<point> > inf_objects;
 
 
 
@@ -89,8 +92,11 @@ point calculateCenter(vector<point> object){
 
 void laserScanReceived(const sensor_msgs::LaserScan &scanMessage){
     objects.clear();
+    inf_objects.clear();
+    float MAX_RANGE = scanMessage.range_max;
     std::vector<float> ranges = scanMessage.ranges;
     vector<point> object;
+    vector<point> inf_object;
     point current_point;
     point last_point;
     for (int i = 0; i < int(ranges.size()); i++){
@@ -103,7 +109,7 @@ void laserScanReceived(const sensor_msgs::LaserScan &scanMessage){
             continue;
         }
         if (isValidRange(range)){
-            if (similarPoints(last_point, current_point)){
+            if (isValidRange(last_point.range) && similarPoints(last_point, current_point)){
                 object.push_back(current_point);
             } else {
                 if (int(object.size()) > MIN_OBJECT_POINTS){
@@ -111,6 +117,17 @@ void laserScanReceived(const sensor_msgs::LaserScan &scanMessage){
                 }
                 object.clear();
                 object.push_back(current_point);
+            }
+        } else {
+            point temp_point = point(MAX_RANGE, current_point.angle);
+            if (!isValidRange(last_point.range)){
+                inf_object.push_back(temp_point);
+            } else {
+                if (int(inf_object.size()) > MIN_INF_OBJECT_POINTS){
+                    inf_objects.push_back(inf_object);
+                }
+                inf_object.clear();
+                inf_object.push_back(temp_point);
             }
         }
         last_point = current_point;
@@ -144,27 +161,92 @@ int main(int argc, char **argv){
 //        twistObject.linear.x = 1;
 //        twistPublisher.publish(twistObject);
 
-        for (int i = 0; i < int(objects.size()); i++){
-            vector<point> object = objects.at(i);
-            centers.push_back(calculateCenter(object));
+        int max_size = 0;
+        vector<point> max_inf_object;
+        for (int i = 0; i < int(inf_objects.size()); i++){
+            vector<point> object = inf_objects.at(i);
+            if (int(object.size()) > max_size){
+                max_size = object.size();
+                max_inf_object = object;
+            }
+            //centers.push_back(calculateCenter(object));
         }
 
-        cloud.points.resize(centers.size());
+        // TODO: Need to check if max_inf_object exists
+        point target_point = calculateCenter(max_inf_object);
 
-        ROS_INFO_STREAM("Centers: " << centers.size());
+
+        cloud.points.resize(1);
+
+     //   ROS_INFO_STREAM("Centers: " << centers.size());
 
 
         // Map average points on PointCloud .
-        for (int i = 0; i < int(centers.size()); i++){
-            point p = centers.at(i);
-            cloud.points[i].x = p.getX();
-            cloud.points[i].y = p.getY();
-            cloud.points[i].z = 0;
-            ROS_INFO_STREAM("Center " << i << ": (" << p.getX() << ", " << p.getY() << ")\n");
+        //for (int i = 0; i < int(centers.size()); i++){
+    //        point p = centers.at(i);
+            cloud.points[0].x = target_point.getX();
+            cloud.points[0].y = target_point.getY();
+            cloud.points[0].z = 0;
+          //  ROS_INFO_STREAM("Center " << i << ": (" << p.getX() << ", " << p.getY() << ")\n");
 
-        }
+       //}
         //Publish the person_locations PointCloud
         objectPublisher.publish(cloud);
+
+        geometry_msgs::Twist twistObject;
+
+        if (inf_objects.size() > 0){
+
+            if(target_point.angle < -ANGLE_PADDING) {
+                twistObject.linear.x = .1;
+                twistObject.angular.z = -.1f;
+            } else if (target_point.angle > ANGLE_PADDING){
+                twistObject.linear.x = .1;
+                twistObject.angular.z = .1f;
+            } else {
+                twistObject.linear.x = 1;
+                twistObject.angular.z = 0;
+            }
+
+
+        } else {
+            twistObject.linear.x = 0;
+            twistObject.angular.z = -M_PI/4;
+        }
+
+        twistPublisher.publish(twistObject);
+
+
+//        if (inf_objects.size() > 0){
+//            isTurning = true;
+//            float initial_angle = robot_angle;
+//            bool first_run = true;
+//            float initial_turn_rate = M_PI/4;
+//            while(isTurning){
+//                float angle_difference = (robot_angle - initial_angle) * M_PI;
+//                //cout << "LOOPING \n";
+//                float thetaError = angles::normalize_angle_positive(target_point.angle - angle_difference);
+//                cout << thetaError << " " << angle_difference <<  endl;
+//                if(thetaError > tolerance && target_point.angle > 0) {
+//                    twistObject.linear.x = .1;
+//                    twistObject.angular.z *= thetaError * (first_run ? initial_turn_rate : 1);
+//                } else if (thetaError > tolerance && target_point.angle < 0){
+//                    twistObject.linear.x = .1;
+//                    twistObject.angular.z *= thetaError * (first_run ? initial_turn_rate * -1 : 1);
+//                } else {
+//                    twistObject.linear.x = 1;
+//                    twistObject.angular.z = 0;
+//                    isTurning = false;
+//                }
+//                first_run = false;
+//                twistPublisher.publish(twistObject);
+//            }
+
+//       } else {
+//           twistObject.linear.x = 0;
+//           twistObject.angular.z = -M_PI/4;
+//           twistPublisher.publish(twistObject);
+//       }
 
         ros::spinOnce();
         rate.sleep();
