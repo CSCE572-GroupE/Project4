@@ -62,8 +62,8 @@ struct pointObject {
 const float POINT_MAX_DISTANCE = .5f; //Defines max distance between one point in and person and the adjacent point
 const float POINT_RANGE_MAX = .5f; //Defines max difference in range that two points can have and still be considered for the same object
 
-const int MIN_OBJECT_POINTS = 8; //Min number of points that must be connected in order to be considered a person
-const int MIN_INF_OBJECT_POINTS = 50;
+const int MIN_OBJECT_POINTS = 30; //Min number of points that must be connected in order to be considered a person
+const int MIN_INF_OBJECT_POINTS = 30;
 const float ANGLE_PADDING = M_PI/75.;
 
 const int RATE = 50;
@@ -259,26 +259,26 @@ int main(int argc, char **argv){
                 twistObject.linear.x = 0;
                 twistObject.angular.z = .2f;
             } else {
-                twistObject.linear.x = 5;
+                twistObject.linear.x = 1;
                 twistObject.angular.z = 0;
             }
 
 
         } else if (objects.size() > 0){
-            if (object_max_distance > .5){
+            if (object_max_distance > 3){
                 ROS_INFO_STREAM("Moving Towards Object");
                 if(farthest_object_center.angle < -ANGLE_PADDING) {
                     twistObject.linear.x = 0;
-                    twistObject.angular.z = -.75f;
+                    twistObject.angular.z = -.2f;
                 } else if (farthest_object_center.angle > ANGLE_PADDING){
                     twistObject.linear.x = 0;
-                    twistObject.angular.z = .75f;
+                    twistObject.angular.z = .2f;
                 } else {
-                    twistObject.linear.x = 5;
+                    twistObject.linear.x = 1;
                     twistObject.angular.z = 0;
                 }
             } else {
-                twistObject.linear.x = 5;
+                twistObject.linear.x = 1;
                 twistObject.angular.z = 0;
             }
         } else {
