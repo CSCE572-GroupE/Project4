@@ -34,6 +34,29 @@ struct point {
 
 };
 
+struct pointObject {
+    vector<point> points;
+
+    pointObject(){
+    }
+
+    void addPoint(point p){
+        points.push_back(p);
+    }
+
+    point lastPoint(){
+        return points.back();
+    }
+
+    void clear(){
+        points.clear();
+    }
+
+    int size(){
+        return points.size();
+    }
+};
+
 
 /***** Constants ******/
 const float POINT_MAX_DISTANCE = .5f; //Defines max distance between one point in and person and the adjacent point
@@ -45,8 +68,8 @@ const float ANGLE_PADDING = M_PI/75.;
 
 const int RATE = 50;
 
-std::vector < std::vector<point> > objects;
-std::vector < std::vector<point> > inf_objects;
+std::vector < pointObject > objects;
+std::vector < pointObject > inf_objects;
 
 
 
@@ -99,8 +122,8 @@ void laserScanReceived(const sensor_msgs::LaserScan &scanMessage){
     inf_objects.clear();
     float MAX_RANGE = scanMessage.range_max;
     std::vector<float> ranges = scanMessage.ranges;
-    vector<point> object;
-    vector<point> inf_object;
+    pointObject object;
+    pointObject inf_object;
     point current_point;
     point last_point;
     for (int i = 0; i < int(ranges.size()); i++){
@@ -114,24 +137,34 @@ void laserScanReceived(const sensor_msgs::LaserScan &scanMessage){
         }
         if (isValidRange(range)){
             if (isValidRange(last_point.range) && similarPoints(last_point, current_point)){
-                object.push_back(current_point);
+                object.addPoint(current_point);
             } else {
-                if (int(object.size()) > MIN_OBJECT_POINTS){
-                    objects.push_back(object);
+                bool objectFound = false;
+                for(int j = 0; j < int(objects.size()); j++){
+                    pointObject obj = objects.at(j);
+                    if(similarPoints(obj.lastPoint(), current_point)){
+                        obj.addPoint(current_point);
+                        objectFound = true;
+                    }
                 }
-                object.clear();
-                object.push_back(current_point);
+                if (!objectFound){
+                    if (int(object.size()) > MIN_OBJECT_POINTS){
+                        objects.push_back(object);
+                    }
+                    object.clear();
+                    object.addPoint(current_point);
+                }
             }
         } else {
             point temp_point = point(MAX_RANGE, current_point.angle);
             if (!isValidRange(last_point.range)){
-                inf_object.push_back(temp_point);
+                inf_object.addPoint(temp_point);
             } else {
                 if (int(inf_object.size()) > MIN_INF_OBJECT_POINTS){
                     inf_objects.push_back(inf_object);
                 }
                 inf_object.clear();
-                inf_object.push_back(temp_point);
+                inf_object.addPoint(temp_point);
             }
         }
         last_point = current_point;
@@ -166,9 +199,9 @@ int main(int argc, char **argv){
 //        twistPublisher.publish(twistObject);
 
         int max_size = 0;
-        vector<point> max_inf_object;
+        pointObject max_inf_object;
         for (int i = 0; i < int(inf_objects.size()); i++){
-            vector<point> object = inf_objects.at(i);
+            pointObject object = inf_objects.at(i);
             if (int(object.size()) > max_size){
                 max_size = object.size();
                 max_inf_object = object;
@@ -179,8 +212,8 @@ int main(int argc, char **argv){
         point farthest_object_center;
         int object_max_distance = 0;
         for (int i = 0; i < int(objects.size()); i++){
-            vector<point> object = objects.at(i);
-            point object_center = calculateCenter(object);
+            pointObject object = objects.at(i);
+            point object_center = calculateCenter(object.points);
             if (distanceBetweenPoints(object_center, point()) > object_max_distance){
                 object_max_distance = distanceBetweenPoints(object_center, point());
                 farthest_object_center = object_center;
@@ -191,7 +224,7 @@ int main(int argc, char **argv){
 
 
         // TODO: Need to check if max_inf_object exists
-        point target_point = calculateCenter(max_inf_object);
+        point target_point = calculateCenter(max_inf_object.points);
 
 
         cloud.points.resize(centers.size());
@@ -236,10 +269,10 @@ int main(int argc, char **argv){
                 ROS_INFO_STREAM("Moving Towards Object");
                 if(farthest_object_center.angle < -ANGLE_PADDING) {
                     twistObject.linear.x = 0;
-                    twistObject.angular.z = -.2f;
+                    twistObject.angular.z = -.75f;
                 } else if (farthest_object_center.angle > ANGLE_PADDING){
                     twistObject.linear.x = 0;
-                    twistObject.angular.z = .2f;
+                    twistObject.angular.z = .75f;
                 } else {
                     twistObject.linear.x = 5;
                     twistObject.angular.z = 0;
