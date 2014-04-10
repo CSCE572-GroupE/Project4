@@ -323,10 +323,10 @@ int main(int argc, char **argv){
         } else if (objects.size() > 0){
             if (object_max_distance > 3){
                 ROS_INFO_STREAM("Moving Towards Object");
-                if(farthest_object_center.angle < -ANGLE_PADDING) {
+                if(farthest_object_center.angle < -ANGLE_PADDING * 2) {
                     twistObject.linear.x = 0;
                     twistObject.angular.z = -.2f;
-                } else if (farthest_object_center.angle > ANGLE_PADDING){
+                } else if (farthest_object_center.angle > ANGLE_PADDING * 2){
                     twistObject.linear.x = 0;
                     twistObject.angular.z = .2f;
                 } else {
