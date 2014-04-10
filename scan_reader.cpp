@@ -2,6 +2,9 @@
 #include <sensor_msgs/LaserScan.h>
 #include <geometry_msgs/Twist.h>
 #include <sensor_msgs/PointCloud.h>
+#include <std_msgs/Int32.h>
+#include <diagnostic_msgs/DiagnosticArray.h>
+#include <diagnostic_msgs/DiagnosticStatus.h>
 
 using namespace std;
 
@@ -59,14 +62,19 @@ struct pointObject {
 
 
 /***** Constants ******/
-const float POINT_MAX_DISTANCE = .5f; //Defines max distance between one point in and person and the adjacent point
+const float POINT_MAX_DISTANCE = .25f; //Defines max distance between one point in and person and the adjacent point
 const float POINT_RANGE_MAX = .5f; //Defines max difference in range that two points can have and still be considered for the same object
 
 const int MIN_OBJECT_POINTS = 30; //Min number of points that must be connected in order to be considered a person
-const int MIN_INF_OBJECT_POINTS = 30;
-const float ANGLE_PADDING = M_PI/75.;
+const int MIN_INF_OBJECT_POINTS = 35;
+const float ANGLE_PADDING = M_PI/50.;
+const int MIN_WIFI_STRENGTH_THRESHOLD = 20;
 
 const int RATE = 50;
+
+bool wifi_valid = true;
+bool bump_sensor_valid = true;
+bool diagnostics_valid = true;
 
 std::vector < pointObject > objects;
 std::vector < pointObject > inf_objects;
@@ -102,6 +110,10 @@ float distanceBetweenPoints(point pointA, point pointB){
  */
 bool similarPoints(point pointA, point pointB){
     return distanceBetweenPoints(pointA, pointB) < POINT_MAX_DISTANCE;
+}
+
+bool motionAllowed(){
+    return wifi_valid && bump_sensor_valid && diagnostics_valid;
 }
 
 point calculateCenter(vector<point> object){
@@ -172,11 +184,55 @@ void laserScanReceived(const sensor_msgs::LaserScan &scanMessage){
     objects.push_back(object);
 }
 
+void bumpWheeldropMessageReceived(std_msgs::Int32 bumpWheeldropObject){
+    int bumpWheeldrop = bumpWheeldropObject.data;
+    if (bumpWheeldrop != 0){
+        bump_sensor_valid = false;
+    } else {
+        bump_sensor_valid = true;
+    }
+}
+
+void wifiMessageReceived(std_msgs::Int32 wifiStrengthObject){
+    ROS_INFO_STREAM("Wifi Signal Strength: " << wifiStrengthObject.data << "%");
+    if (wifiStrengthObject.data <= MIN_WIFI_STRENGTH_THRESHOLD){
+        wifi_valid = false;
+    } else {
+        wifi_valid = true;
+    }
+}
+
+
+void diagnosticMessageRecieved(diagnostic_msgs::DiagnosticArray diagnosticArray){
+    bool issue_found = false;
+    for (int i = 0; i < sizeof(diagnosticArray.status); i++){
+        diagnostic_msgs::DiagnosticStatus status = diagnosticArray.status[i];
+        if (status.level == 1){
+            ROS_INFO_STREAM("WARNING: " << status.name << " -- " << status.message);
+            issue_found = true;
+        } else if (status.level == 2){
+            ROS_INFO_STREAM("ERROR: " << status.name << " -- " << status.message);
+            issue_found = true;
+        }
+    }
+    if (issue_found){
+        diagnostics_valid = false;
+    } else {
+        diagnostics_valid = true;
+    }
+}
+
+
 int main(int argc, char **argv){
     ros::init(argc, argv, "scan_reader");
 	ros::NodeHandle nh;
 
     ros::Subscriber laserSubcriber = nh.subscribe("/scan", 1000, &laserScanReceived);
+
+    ros::Subscriber wifiSubcriber = nh.subscribe("/wifi_ss", 1000, &wifiMessageReceived);
+    ros::Subscriber diagnosticSubscriber = nh.subscribe("/diagnostics_agg", 1000, &diagnosticMessageRecieved);
+    ros::Subscriber bumpWheeldropSubscriber = nh.subscribe("/bump_wheeldrop", 1000, &bumpWheeldropMessageReceived);
+
     ros::Publisher twistPublisher = nh.advertise<geometry_msgs::Twist>("/cmd_vel_mux/input/navi",1000);
 
     ros::Publisher objectPublisher = nh.advertise<sensor_msgs::PointCloud>(
@@ -254,10 +310,10 @@ int main(int argc, char **argv){
 
             if(target_point.angle < -ANGLE_PADDING) {
                 twistObject.linear.x = 0;
-                twistObject.angular.z = -.2f;
+                twistObject.angular.z = -.5f;
             } else if (target_point.angle > ANGLE_PADDING){
                 twistObject.linear.x = 0;
-                twistObject.angular.z = .2f;
+                twistObject.angular.z = .5f;
             } else {
                 twistObject.linear.x = 1;
                 twistObject.angular.z = 0;
@@ -286,39 +342,12 @@ int main(int argc, char **argv){
             twistObject.angular.z = -M_PI/4;
         }
 
+        if (!motionAllowed()){
+            twistObject.linear.x = 0;
+            twistObject.angular.z = 0;
+        }
+
         twistPublisher.publish(twistObject);
-
-
-//        if (inf_objects.size() > 0){
-//            isTurning = true;
-//            float initial_angle = robot_angle;
-//            bool first_run = true;
-//            float initial_turn_rate = M_PI/4;
-//            while(isTurning){
-//                float angle_difference = (robot_angle - initial_angle) * M_PI;
-//                //cout << "LOOPING \n";
-//                float thetaError = angles::normalize_angle_positive(target_point.angle - angle_difference);
-//                cout << thetaError << " " << angle_difference <<  endl;
-//                if(thetaError > tolerance && target_point.angle > 0) {
-//                    twistObject.linear.x = .1;
-//                    twistObject.angular.z *= thetaError * (first_run ? initial_turn_rate : 1);
-//                } else if (thetaError > tolerance && target_point.angle < 0){
-//                    twistObject.linear.x = .1;
-//                    twistObject.angular.z *= thetaError * (first_run ? initial_turn_rate * -1 : 1);
-//                } else {
-//                    twistObject.linear.x = 1;
-//                    twistObject.angular.z = 0;
-//                    isTurning = false;
-//                }
-//                first_run = false;
-//                twistPublisher.publish(twistObject);
-//            }
-
-//       } else {
-//           twistObject.linear.x = 0;
-//           twistObject.angular.z = -M_PI/4;
-//           twistPublisher.publish(twistObject);
-//       }
 
         ros::spinOnce();
         rate.sleep();
