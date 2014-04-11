@@ -62,15 +62,15 @@ struct pointObject {
 
 
 /***** Constants ******/
-const float POINT_MAX_DISTANCE = .25f; //Defines max distance between one point in and person and the adjacent point
+const float POINT_MAX_DISTANCE = .25f; //Defines max distance between one point in object and the adjacent point
 const float POINT_RANGE_MAX = .5f; //Defines max difference in range that two points can have and still be considered for the same object
 
-const int MIN_OBJECT_POINTS = 30; //Min number of points that must be connected in order to be considered a person
-const int MIN_INF_OBJECT_POINTS = 35;
-const float ANGLE_PADDING = M_PI/50.;
+const int MIN_OBJECT_POINTS = 30; //Min number of points that must be connected in order to be considered an object
+const int MIN_INF_OBJECT_POINTS = 50;
+const float ANGLE_PADDING = M_PI/150.;
 const int MIN_WIFI_STRENGTH_THRESHOLD = 20;
 
-const int RATE = 50;
+const int RATE = 30;
 
 bool wifi_valid = true;
 bool bump_sensor_valid = true;
@@ -79,7 +79,14 @@ bool diagnostics_valid = true;
 std::vector < pointObject > objects;
 std::vector < pointObject > inf_objects;
 
-
+int last_motion = 0;
+int multiplier = 1;
+int loop_count = 0;
+bool motion_left = false;
+bool motion_right = false;
+bool motion_straight = false;
+float horizontal_movement = 0;
+float angular_movmement = 0;
 
 
 /**
@@ -125,7 +132,7 @@ point calculateCenter(vector<point> object){
         total_range += p.range;
         total_angle += p.angle;
     }
-    ROS_INFO_STREAM("Calc Center: Range-" << total_range << " Angle-" << total_angle << " Size-" << object_size);
+    //ROS_INFO_STREAM("Calc Center: Range-" << total_range << " Angle-" << total_angle << " Size-" << object_size);
     return point(total_range/object_size, total_angle/object_size);
 }
 
@@ -167,7 +174,7 @@ void laserScanReceived(const sensor_msgs::LaserScan &scanMessage){
                     object.addPoint(current_point);
                 }
             }
-        } else {
+        } else { 
             point temp_point = point(MAX_RANGE, current_point.angle);
             if (!isValidRange(last_point.range)){
                 inf_object.addPoint(temp_point);
@@ -250,10 +257,6 @@ int main(int argc, char **argv){
         cloud.header.stamp = ros::Time::now();
         cloud.header.frame_id = "camera_depth_frame";
 
-//        geometry_msgs::Twist twistObject;
-//        twistObject.linear.x = 1;
-//        twistPublisher.publish(twistObject);
-
         int max_size = 0;
         pointObject max_inf_object;
         for (int i = 0; i < int(inf_objects.size()); i++){
@@ -262,7 +265,6 @@ int main(int argc, char **argv){
                 max_size = object.size();
                 max_inf_object = object;
             }
-            //centers.push_back(calculateCenter(object));
         }
 
         point farthest_object_center;
@@ -277,16 +279,9 @@ int main(int argc, char **argv){
             centers.push_back(object_center);
         }
 
-
-
-        // TODO: Need to check if max_inf_object exists
         point target_point = calculateCenter(max_inf_object.points);
 
-
         cloud.points.resize(centers.size());
-
-        ROS_INFO_STREAM("Centers: " << centers.size());
-
 
         // Map average points on PointCloud .
         for (int i = 0; i < int(centers.size()); i++){
@@ -294,59 +289,54 @@ int main(int argc, char **argv){
             cloud.points[i].x = p.getX();
             cloud.points[i].y = p.getY();
             cloud.points[i].z = 0;
-          //  ROS_INFO_STREAM("Center " << i << ": (" << p.getX() << ", " << p.getY() << ")\n");
-
        }
-        //Publish the person_locations PointCloud
-
-        //cloud.points[0].x = target_point.getX();
-        //cloud.points[0].y = target_point.getY();
-        //cloud.points[0].z = 0;
         objectPublisher.publish(cloud);
+
 
         geometry_msgs::Twist twistObject;
 
         if (inf_objects.size() > 0){
-
             if(target_point.angle < -ANGLE_PADDING) {
-                twistObject.linear.x = 0;
-                twistObject.angular.z = -.5f;
+                twistObject.linear.x = horizontal_movement < .05 ? 0 : horizontal_movement * .20f;
+                twistObject.angular.z = -.3;//-target_point.angle > -.1 ? -.1 : target_point.angle;
+//                 ROS_INFO_STREAM("RIGHT- x:" << twistObject.linear.x << " z:" << twistObject.angular.z);
+                 motion_right = true;
             } else if (target_point.angle > ANGLE_PADDING){
-                twistObject.linear.x = 0;
-                twistObject.angular.z = .5f;
+                twistObject.linear.x = horizontal_movement < .05 ? 0 : horizontal_movement * .20f;
+                twistObject.angular.z = .3; //target_point.angle < .1 ? .1 : target_point.angle;
+//                ROS_INFO_STREAM("LEFT- x:" << twistObject.linear.x << " z:" << twistObject.angular.z);
+                motion_left = true;
             } else {
-                twistObject.linear.x = 1;
+                twistObject.linear.x = horizontal_movement == 0 ? .5f : horizontal_movement > 10 ? 10 : horizontal_movement * 1.1f;
                 twistObject.angular.z = 0;
+//              ROS_INFO_STREAM("STRAIGHT- x:" << twistObject.linear.x << " z:" << twistObject.angular.z);
+                motion_straight = true;
             }
 
 
-        } else if (objects.size() > 0){
-            if (object_max_distance > 3){
-                ROS_INFO_STREAM("Moving Towards Object");
-                if(farthest_object_center.angle < -ANGLE_PADDING * 2) {
-                    twistObject.linear.x = 0;
-                    twistObject.angular.z = -.2f;
-                } else if (farthest_object_center.angle > ANGLE_PADDING * 2){
-                    twistObject.linear.x = 0;
-                    twistObject.angular.z = .2f;
-                } else {
-                    twistObject.linear.x = 1;
-                    twistObject.angular.z = 0;
-                }
-            } else {
-                twistObject.linear.x = 1;
-                twistObject.angular.z = 0;
-            }
         } else {
             twistObject.linear.x = 0;
             twistObject.angular.z = -M_PI/4;
         }
 
+        loop_count++;
+        if (loop_count >= RATE){
+            if (motion_right && motion_left && !motion_straight){
+                twistObject.linear.x = -10.0f;
+                twistObject.angular.z = -M_PI;
+            }
+            loop_count = 0;
+            motion_right = false;
+            motion_left = false;
+            motion_straight = false;
+        }
         if (!motionAllowed()){
             twistObject.linear.x = 0;
             twistObject.angular.z = 0;
         }
 
+        horizontal_movement = twistObject.linear.x;
+        angular_movmement = twistObject.angular.z;
         twistPublisher.publish(twistObject);
 
         ros::spinOnce();
